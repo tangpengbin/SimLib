@@ -1,0 +1,23 @@
+see https://www.cs.cornell.edu/~srm/publications/EGSR07-btdf.pdf
+for the correct vectors Eq. 20 and Fig. 6
+i = where light is incoming, o= light outgoing
+m = is microsurface normal
+n = is macrosurface normal
+thus i = Direction to light, o = direction to viewer
+Assuming microfacets are perfect mirrors, we need a direct connection from viewer to light, a distribution of mirrors makes this a non infinitesimal direction where light is directed,
+ normal Distribution D(m) gives us the necessary information how the perfect mirrors lead to a smooth highlight
+ by plugging in normalized h_r, which is the half vector (see fig.6) between which vectors though?
+
+https://blog.selfshadow.com/publications/s2013-shading-course/
+https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_slides.pdf
+http://graphicrants.blogspot.com/2013/08/specular-brdf-reference.html
+
+// https://google.github.io/filament/Filament.html#materialsystem/dielectricsandconductors
+says that dielectrocis have achromatic specular reflectance
+but conductors use their base color as specular color
+"Metallic" says whether its a dielectric (metallic = 0) or a conductors(metallic = 1), often used as binary value see Table 2
+
+many good hints in filament/Filament
+see https://google.github.io/filament/Filament.html#materialsystem/dielectricsandconductors
+
+TODO replace specular color definition by metallic property (use "achromatic" color when metallic = 0, but use color as specular color when metallic==1, and use uniforms everywhere... if there is no reason to computing it in the shader)
