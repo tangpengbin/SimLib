@@ -31,6 +31,10 @@ endif()
 # Find OpenMP
 find_package(OpenMP REQUIRED)
 
+target_include_directories(${PROJECT_NAME}
+		PUBLIC
+			${PROJECT_SRC_DIR}
+			)
 target_link_libraries(${PROJECT_NAME}
 	PUBLIC
 		Eigen3::Eigen
@@ -76,5 +80,4 @@ file(GLOB_RECURSE source_files
 
 #put lib into the project
 add_library(${PROJECT_NAME} ${source_files})
-target_link_libraries(${PROJECT_NAME} SimLib_Core)
-add_library(SimLib::core ALIAS SimLib)
+target_link_libraries(${PROJECT_NAME} PUBLIC SimLib_Core)
