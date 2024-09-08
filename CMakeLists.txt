@@ -77,3 +77,4 @@ file(GLOB_RECURSE source_files
 #put lib into the project
 add_library(${PROJECT_NAME} ${source_files})
 target_link_libraries(${PROJECT_NAME} SimLib_Core)
+add_library(SimLib::core ALIAS SimLib)
