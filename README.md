@@ -26,7 +26,7 @@ target_link_libraries(${PROJECT_NAME}
 @software{SimLib,
   title = {SimLib},
   author = {Pengbin Tang, Jonas Zehnder, Bernhard Thomaszewski},
-  note = {https://github.com/tangpengbin/SimLib},
+  url = {https://github.com/tangpengbin/SimLib},
   year = {2024}
 }
 ```
