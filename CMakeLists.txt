@@ -5,10 +5,10 @@ SET(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CMake/externalLibs.cmake)
 include(CMake/eigen.cmake)
 
-project(SimLib_Core)
+project(SimLib)
 set(CMAKE_CXX_STANDARD 14)
 
-set(PROJECT_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/src_core")
+set(PROJECT_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/src")
 file(GLOB_RECURSE source_files
 	${PROJECT_SRC_DIR}/*.h
 	${PROJECT_SRC_DIR}/*.cpp
@@ -67,17 +67,3 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC "SIM_OPT_SHADER_FOLDER=\"${CMA
 
 
 source_group(TREE ${PROJECT_SRC_DIR} FILES ${source_files})
-
-
-project(SimLib)
-
-set(PROJECT_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/src")
-
-file(GLOB_RECURSE source_files
-	${PROJECT_SRC_DIR}/*.h
-	${PROJECT_SRC_DIR}/*.cpp
-	)
-
-#put lib into the project
-add_library(${PROJECT_NAME} ${source_files})
-target_link_libraries(${PROJECT_NAME} PUBLIC SimLib_Core)
