@@ -17,5 +17,16 @@ After that, you can link the library to your project.
 target_link_libraries(${PROJECT_NAME}
 		PUBLIC
 		SimLib
-		)
+)
+```
+
+# Citation
+
+```
+@software{SimLib,
+  title = {SimLib},
+  author = {Pengbin Tang, Jonas Zehnder, Bernhard Thomaszewski},
+  note = {https://github.com/tangpengbin/SimLib},
+  year = {2024}
+}
 ```
