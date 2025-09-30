@@ -85,7 +85,7 @@ if(NOT TARGET ipc_toolkit)
 	FetchContent_Declare(
     ipc_toolkit
     GIT_REPOSITORY https://github.com/ipc-sim/ipc-toolkit.git
-    GIT_TAG b6b6023794c09ef975dddd12ee239d15288b1da9
+    GIT_TAG v1.2.0
     GIT_SHALLOW FALSE
 	)
 	FetchContent_MakeAvailable(ipc_toolkit)
