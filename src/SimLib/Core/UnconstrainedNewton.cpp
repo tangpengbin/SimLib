@@ -236,7 +236,7 @@ void UnconstrainedNewton::solve()
 
 
 		double f;
-		LineSearch::backtrack(m_x, dx, oldFx, 25, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
+		LineSearch::backtrack(m_x, dx, oldFx, 5, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
 		
 		spdlog::debug("alpha {} step length {} with objective value {} at iteration {}", alpha, dx.norm() * alpha, f, m_iter);
 		
