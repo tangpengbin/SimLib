@@ -11,14 +11,16 @@
 #include <Eigen/Sparse>
 #include <vector>
 
+using ScalarType = double;
 
 //typedef std::vector<double> dVector;
-typedef Eigen::Vector3d V3D;
-typedef Eigen::Vector2d V2D;
+typedef Eigen::Vector4<ScalarType> V4D;
+typedef Eigen::Vector3<ScalarType> V3D;
+typedef Eigen::Vector2<ScalarType> V2D;
 //typedef Eigen::VectorXd dVector;
-typedef Eigen::Triplet<double> Tripletd;
-typedef std::vector<Eigen::Triplet<double> > TripVec;
-typedef Eigen::SparseMatrix<double> SpMat;
+typedef Eigen::Triplet<ScalarType> Tripletd;
+typedef std::vector<Eigen::Triplet<ScalarType> > TripVec;
+typedef Eigen::SparseMatrix<ScalarType> SpMat;
 typedef Eigen::Array<bool, Eigen::Dynamic, 1> EigenArrayXb;
 
 template<typename Scaler>

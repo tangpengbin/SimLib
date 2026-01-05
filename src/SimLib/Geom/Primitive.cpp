@@ -1,7 +1,8 @@
 #include "Primitive.h"
 
 #include <Eigen/Geometry>
-
+namespace SimOpt
+{
 static Eigen::Vector3d parallelTransportVector(
 	const Eigen::Vector3d &m_vFrom,
 	const Eigen::Vector3d &m_vTo,
@@ -288,4 +289,137 @@ void cuboid(double length, double width, double height, bool isolatedFaces,
 	scale(1, 1) = height;
 	scale(2, 2) = width;
 	V = scale * V;
+}
+
+
+
+void torusEllipticalCrossSection(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	Eigen::MatrixXi& F)
+{
+	V.resize(3, axis_subdivisions * height_subdivisions);
+	F.resize(3, axis_subdivisions * height_subdivisions * 2);
+
+	//make a unite circle ring on x-y plane
+	double axis_angleSection = 2 * M_PI / axis_subdivisions;
+	double height_angleSection = 2 * M_PI / height_subdivisions;
+	for (int i = 0; i < axis_subdivisions; i++) 
+	{
+		V3D currentVeretex(sin(i * axis_angleSection) * radius, cos(i * axis_angleSection) * radius, 0);
+
+		//compute cross section direction
+		V3D PreviousVertex(sin((i - 1) * axis_angleSection), cos((i - 1) * axis_angleSection), 0);
+		V3D nextVertex(sin((i + 1) * axis_angleSection), cos((i + 1) * axis_angleSection), 0);
+		V3D axis_dir = (nextVertex - PreviousVertex).normalized();
+		V3D height_dir(0, 0, 1.0);
+		V3D height_dir_ortho = axis_dir.cross(height_dir);
+		// build cross section vertex
+		for (int j = 0; j < height_subdivisions; j++)
+		{
+			V.col(i * height_subdivisions + j) = currentVeretex + (crossSection_outOfPlane_radius * height_dir * sin(j * height_angleSection) + crossSection_inPlane_radius * height_dir_ortho * cos(j * height_angleSection));
+
+			int vertex_thisSection_Index = i * height_subdivisions + j;
+			int vertexNext_thisSection_Index = (j == height_subdivisions - 1 ?
+													i * height_subdivisions :
+													vertex_thisSection_Index + 1);
+
+			int vertex_nextSection_Index = (i == axis_subdivisions - 1 ? 
+													j :
+													i * height_subdivisions + j + height_subdivisions);
+			int vertexNext_nextSection_Index = (i == axis_subdivisions - 1 ? 
+													(j == height_subdivisions - 1 ? 0 : j + 1) :
+													(j == height_subdivisions - 1 ? i * height_subdivisions + height_subdivisions : i * height_subdivisions + j + 1 + height_subdivisions));
+			// for vertex j and j + 1, we will have two triangles
+			F.col(i * height_subdivisions * 2 + 2 * j + 0) = Eigen::Vector3i(vertex_thisSection_Index, vertex_nextSection_Index, 	 vertexNext_thisSection_Index);
+			F.col(i * height_subdivisions * 2 + 2 * j + 1) = Eigen::Vector3i(vertexNext_thisSection_Index,  vertex_nextSection_Index, vertexNext_nextSection_Index);
+		}
+	}
+}
+
+
+void torusEllipticalCrossSectionVerticesJacobian(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	Eigen::MatrixXd& VGradient)
+{
+	V.resize(3, axis_subdivisions * height_subdivisions);
+	//compute graident w.r.t parameters: radius, crossSection_inPlane_radius, crossSection_outOfPlane_radius
+	VGradient.resize(3 * axis_subdivisions * height_subdivisions, 3);
+
+	//make a unite circle ring on x-y plane
+	double axis_angleSection = 2 * M_PI / axis_subdivisions;
+	double height_angleSection = 2 * M_PI / height_subdivisions;
+	for (int i = 0; i < axis_subdivisions; i++) 
+	{
+		V3D currentVeretex(sin(i * axis_angleSection) * radius, cos(i * axis_angleSection) * radius, 0);
+
+		//compute cross section direction
+		V3D PreviousVertex(sin((i - 1) * axis_angleSection), cos((i - 1) * axis_angleSection), 0);
+		V3D nextVertex(sin((i + 1) * axis_angleSection), cos((i + 1) * axis_angleSection), 0);
+		V3D axis_dir = (nextVertex - PreviousVertex).normalized();
+		V3D height_dir(0, 0, 1.0);
+		V3D height_dir_ortho = axis_dir.cross(height_dir);
+		// build cross section vertex
+		for (int j = 0; j < height_subdivisions; j++)
+		{
+			V.col(i * height_subdivisions + j) = currentVeretex + (crossSection_outOfPlane_radius * height_dir * sin(j * height_angleSection) + crossSection_inPlane_radius * height_dir_ortho * cos(j * height_angleSection));
+			Eigen::Matrix3d VGradientBlock;
+			VGradientBlock.col(0) = Eigen::Vector3d(sin(i * axis_angleSection), cos(i * axis_angleSection), 0.0); 	//w.r.t radius
+			VGradientBlock.col(1) = height_dir_ortho * cos(j * height_angleSection); 								//w.r.t crossSection_inPlane_radius
+			VGradientBlock.col(2) = height_dir * sin(j * height_angleSection); 										//w.r.t crossSection_outOfPlane_radius
+
+			VGradient.block(3 * (i * height_subdivisions + j), 0, 3, 3) = VGradientBlock;
+		}
+	}
+
+	/*SimOpt::DerivativeTester tester;
+	auto computeVertices = [&](const Eigen::VectorXd &x)
+	{
+		Eigen::MatrixXd testVertices;
+		Eigen::MatrixXi testFaces;
+		torusEllipticalCrossSection(x[0], x[1], x[2], axis_subdivisions, height_subdivisions, testVertices, testFaces);
+		Eigen::VectorXd vertices = Eigen::Map<Eigen::VectorXd>(testVertices.data(), testVertices.size());
+		return vertices;
+	};
+	Eigen::VectorXd x(3);
+	x << radius, crossSection_inPlane_radius, crossSection_outOfPlane_radius;
+	tester.testJacobian(x, VGradient, computeVertices, 10, 1e-4);
+	exit(0);*/
+}
+
+
+void torusEllipticalCrossSectionVerticesHessians(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	std::vector<Eigen::MatrixXd>& VHessians)
+{
+	V.resize(3, axis_subdivisions * height_subdivisions);
+	//compute graident w.r.t parameters: radius, crossSection_inPlane_radius, crossSection_outOfPlane_radius
+	VHessians.resize(3);
+	for (int i = 0; i < 3; i++)
+		VHessians[i].setZero(3 * axis_subdivisions * height_subdivisions, 3);
+
+	//make a unite circle ring on x-y plane
+	double axis_angleSection = 2 * M_PI / axis_subdivisions;
+	double height_angleSection = 2 * M_PI / height_subdivisions;
+	for (int i = 0; i < axis_subdivisions; i++) 
+	{
+		V3D currentVeretex(sin(i * axis_angleSection) * radius, cos(i * axis_angleSection) * radius, 0);
+
+		//compute cross section direction
+		V3D PreviousVertex(sin((i - 1) * axis_angleSection), cos((i - 1) * axis_angleSection), 0);
+		V3D nextVertex(sin((i + 1) * axis_angleSection), cos((i + 1) * axis_angleSection), 0);
+		V3D axis_dir = (nextVertex - PreviousVertex).normalized();
+		V3D height_dir(0, 0, 1.0);
+		V3D height_dir_ortho = axis_dir.cross(height_dir);
+		// build cross section vertex
+		for (int j = 0; j < height_subdivisions; j++)
+		{
+			V.col(i * height_subdivisions + j) = currentVeretex + (crossSection_outOfPlane_radius * height_dir * sin(j * height_angleSection) + crossSection_inPlane_radius * height_dir_ortho * cos(j * height_angleSection));
+		}
+	}
+
+}
+
 }

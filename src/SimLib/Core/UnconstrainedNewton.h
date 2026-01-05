@@ -28,6 +28,81 @@ public:
 	virtual void debugHessian() {}
 };
 
+
+template<int N>
+class UnconstrainedNewtonLinearSolverDenseLLT : public UnconstrainedNewtonLinearSolver
+{
+public:
+	typedef Eigen::Matrix<double, N, N> MatrixType;
+
+	UnconstrainedNewtonLinearSolverDenseLLT(std::function<void(const Eigen::VectorXd& x, MatrixType &hessian)> objectiveHessianFunctor)
+		:
+		m_objectiveHessianFunctor(objectiveHessianFunctor)
+	{
+	}
+	~UnconstrainedNewtonLinearSolverDenseLLT()
+	{
+
+	}
+	Eigen::SparseMatrix<double> getHessian(const Eigen::VectorXd& x)
+	{
+		m_objectiveHessianFunctor(x, m_hessian);
+		Eigen::MatrixXd hessianxd = m_hessian;
+		return hessianxd.sparseView();
+	}
+
+
+	Eigen::SparseMatrix<double> getHessian()
+	{
+		return m_hessian.sparseView();
+	}
+	Eigen::SparseMatrix<double> getShiftedHessian()
+	{
+		return m_hessianShifted.sparseView();
+	}
+
+	MatrixType getDenseHessian(const Eigen::VectorXd& x)
+	{
+		m_objectiveHessianFunctor(x, *m_hessian);
+		return m_hessian;
+	}
+	virtual void setX(const Eigen::VectorXd &x)
+	{
+		m_objectiveHessianFunctor(x, m_hessian);
+		m_hessianShifted = m_hessian;
+		m_shift = 0.0;
+	}
+	virtual void factorize()
+	{
+		m_solver.compute(m_hessianShifted);
+	}
+	virtual void setShift(double val)
+	{
+		m_shift = val;
+		for (int i = 0; i < m_hessianShifted.rows(); i++)
+		{
+			m_hessianShifted(i, i) = m_hessian(i, i) + m_shift;
+		}
+	}
+	virtual void solve(const Eigen::VectorXd &rhs, Eigen::VectorXd &solution)
+	{
+		solution = m_solver.solve(rhs);
+	}
+	virtual Eigen::ComputationInfo info() const
+	{
+		return m_solver.info();
+	}
+
+private:
+	Eigen::LLT<MatrixType, Eigen::Upper > m_solver;
+
+	MatrixType m_hessian;
+	MatrixType m_hessianShifted;
+	double m_shift;
+	std::function<void(const Eigen::VectorXd& x, MatrixType &hessian)> m_objectiveHessianFunctor;
+};
+
+
 class UnconstrainedNewtonLinearSolverLLT : public UnconstrainedNewtonLinearSolver
 {
 public:
@@ -144,6 +219,8 @@ private:
 
 };
 
+enum class lineSearchMethod { ls_backtrack = 0, ls_backtrackGreedy = 1, ls_fullStep = 2};
+
 class UnconstrainedNewton
 {
 public:
@@ -171,7 +248,7 @@ public:
 	{
 		m_largestLineSearchStepFunctor = largestLineSearchStepFunctor;
 	}
-	void setStepBeginningFunctor(std::function<void(const Eigen::VectorXd& x, const int currentIteration)> stepBeginningFunctor)
+	void setStepBeginningFunctor(std::function<bool(const Eigen::VectorXd& x, const int currentIteration)> stepBeginningFunctor)
 	{
 		m_stepBeginningFunctor = stepBeginningFunctor;
 	}
@@ -185,8 +262,11 @@ public:
 		m_updateOperatorBeforeLineSearchFunctor = updateOperatorBeforeLineSearchFunctor;
 	}
 
+
+	double computeSearchDirection(const Eigen::VectorXd &x, const Eigen::VectorXd& gradient, Eigen::VectorXd &dx, double start_reg = 1e-6);
 	void solve();
 	void polish();
+	void polish_test();
 
 	void setGradientThreshold(double gradientThreshold)
 	{
@@ -202,6 +282,16 @@ public:
 	void setMaxIter(int maxIter)
 	{
 		m_maxIter = maxIter;
+	}
+
+	void setPrintLevel(int printLevel)
+	{
+		m_printLevel = printLevel;
+	}
+
+	void setAfterLineSearchFunctor(std::function<void(const Eigen::VectorXd & x, const Eigen::VectorXd & dx, double& alpha, int iteration)> afterLineSearchFunctor)
+	{
+		m_afterLineSearchFunctor = afterLineSearchFunctor;
 	}
 
 	void setNewXAcceptedCallback(std::function<void(Eigen::VectorXd& x)> callback)
@@ -233,6 +323,18 @@ public:
 	{
 		m_disableWarnOutput = disableWarnOutput;
 	}
+	void setCheckForSPDAtSolution(bool check)
+	{
+		m_checkForSPDAtSolution = check;
+	}
+	void setStartRegularization(double startReg)
+	{
+		m_startRegularization = startReg;
+	}
+	void setLineSearchMethod(lineSearchMethod ls_method)
+	{
+		m_lineSearchMethod = ls_method;
+	}
 
 private:
 	Eigen::VectorXd m_x;
@@ -240,10 +342,10 @@ private:
 	std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& grad)> m_objectiveGradientFunctor;
 	std::function<double(const Eigen::VectorXd& x, const Eigen::VectorXd& dx)> m_largestLineSearchStepFunctor = 
 		[](const Eigen::VectorXd& x, const Eigen::VectorXd& dx) {return 1.0; }; //default functor
-	std::function<void(const Eigen::VectorXd& x, const int currentIteration)> m_stepBeginningFunctor = [](const Eigen::VectorXd& x, const int currentIteration) {};
+	std::function<bool(const Eigen::VectorXd& x, const int currentIteration)> m_stepBeginningFunctor = [](const Eigen::VectorXd& x, const int currentIteration) { return true; };
 	std::function<void(Eigen::VectorXd& searchDir)> m_searchDirectionFilterFunctor = [](Eigen::VectorXd& searchDir) {};
 	std::function<void(Eigen::VectorXd& x, Eigen::VectorXd& searchDir)> m_updateOperatorBeforeLineSearchFunctor = [](Eigen::VectorXd& x, Eigen::VectorXd& searchDir) {};
-
+	std::function<void(const Eigen::VectorXd & x, const Eigen::VectorXd & dx, double& alpha, int iteration)> m_afterLineSearchFunctor = [](const Eigen::VectorXd & x, const Eigen::VectorXd & dx, double& alpha, int iteration) {};
 	int m_maxIter;
 	double m_gradientThreshold;
 	double m_dxThreshold;
@@ -252,6 +354,10 @@ private:
 	std::unique_ptr<UnconstrainedNewtonLinearSolver> m_linearSolver;
 	int m_iter;
 	bool m_disableWarnOutput;
+	int m_printLevel;
+	double m_startRegularization;
+	bool m_checkForSPDAtSolution;
+	lineSearchMethod m_lineSearchMethod;
 };
 
 }

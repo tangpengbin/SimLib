@@ -23,11 +23,11 @@ PrimitiveDrawer::PrimitiveDrawer()
 
 	initializeSphere(1);
 
-	cylinderSeperatedCaps(20, 2, vertices, triangles); //set divisions to 2, so we can use trick in conical transform
+	SimOpt::cylinderSeperatedCaps(20, 2, vertices, triangles); //set divisions to 2, so we can use trick in conical transform
 	//cylinderNoCaps(10, 2, vertices, triangles);
 	m_cylinder.setMesh(vertices, triangles);
 
-	coneSeperatedCap(10, vertices, triangles); //set height divisions to 3 because of vertex normals
+	SimOpt::coneSeperatedCap(10, vertices, triangles); //set height divisions to 3 because of vertex normals
 	m_cone.setMesh(vertices, triangles);
 
 	vertices.resize(3, 3);
@@ -41,7 +41,7 @@ PrimitiveDrawer::PrimitiveDrawer()
 	m_triangle.setMesh(vertices, triangles);
 
 
-	cuboid(2.0, 2.0, 2.0, true, vertices, triangles);
+	SimOpt::cuboid(2.0, 2.0, 2.0, true, vertices, triangles);
 	m_cuboid.setMesh(vertices, triangles, false);
 }
 void PrimitiveDrawer::initializeSphere(int nSubdivisions)
@@ -273,7 +273,7 @@ void PrimitiveDrawer::addCylinderMesh(
 {
 	Eigen::MatrixXd vertices;
 	Eigen::MatrixXi triangles;
-	cylinderSeperatedCaps(axis_devisions, 2, vertices, triangles);
+	SimOpt::cylinderSeperatedCaps(axis_devisions, 2, vertices, triangles);
 	mesh.addMesh(vertices, triangles, model);
 }
 void PrimitiveDrawer::addCylinderMesh(

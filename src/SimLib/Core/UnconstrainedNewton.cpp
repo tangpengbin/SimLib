@@ -135,31 +135,77 @@ void UnconstrainedNewtonLinearSolverLLTWrapper::debugHessian()
 UnconstrainedNewton::UnconstrainedNewton(std::unique_ptr<UnconstrainedNewtonLinearSolver> linearSolver)
 	:m_gradientThreshold(1e-5),
 	m_dxThreshold(1e-9),
+	m_lineSearchMethod(lineSearchMethod::ls_backtrack),
 	m_maxIter(1000),
+	m_printLevel(1),
 	m_newXAcceptedCallback([](const Eigen::VectorXd &x) {}),
 	m_linearSolver(std::move(linearSolver))
 {
 	m_state = INITIALIZED;
 	m_disableWarnOutput = false;
+	m_checkForSPDAtSolution = false;// true;
+	m_startRegularization = 1e-6;
 }
+
+double UnconstrainedNewton::computeSearchDirection(const Eigen::VectorXd& x, const Eigen::VectorXd& gradient, Eigen::VectorXd& dx, double start_reg)
+{
+	m_linearSolver->setX(x);
+
+	double reg = 0.0;
+	while (true)
+	{
+		m_linearSolver->setShift(reg);
+		if (reg > 1e20)
+		{
+			if(m_printLevel>0) spdlog::warn("WARNING: huge regularization in forward simulation necessary, hessian very indefinite, check hessian AND GRADIENT implementation, dx norm {}", dx.norm());
+			//m_linearSolver->debugHessian();
+			m_state = SOLVE_FAILED;
+			return reg;
+		}
+		m_linearSolver->factorize();
+		if (m_linearSolver->info() != Eigen::Success)
+		{
+			//std::cout << " inc reg because of cholesky " << std::endl;
+			reg = 4 * reg + start_reg; // 1e-6;
+			continue;
+		}
+		
+		m_linearSolver->solve(gradient, dx);
+		dx = -dx;
+		if (dx.dot(gradient) >= 0.0)
+		{
+			//std::cout << " inc reg because of descending condition  " << std::endl;
+			reg = 4 * reg + 0.1 * start_reg; // 1e-7;
+			continue;
+		}
+
+		break;
+	}
+	return reg;
+}
+
 void UnconstrainedNewton::solve()
 {
 	m_state = INITIALIZED;
-	bool checkForSPDAtSolution = false;// true;
 	Eigen::VectorXd gradient(m_x.size());
 	for (m_iter = 0; m_iter < m_maxIter;)
 	{
-		m_stepBeginningFunctor(m_x, m_iter);
-		m_objectiveGradientFunctor(m_x, gradient);
-		double oldGradientNorm = gradient.norm();
-		spdlog::debug("Gradient norm {} in iteration {}", oldGradientNorm, m_iter);
-		if (oldGradientNorm != oldGradientNorm)
+		bool initialized = m_stepBeginningFunctor(m_x, m_iter);
+		if (!initialized)
 		{
-			std::cout << " Error gradient norm " << oldGradientNorm << " in iteration " << m_iter << std::endl;
 			m_state = SOLVE_FAILED;
 			break;
 		}
-		if (!checkForSPDAtSolution && m_iter>=1)
+		m_objectiveGradientFunctor(m_x, gradient);
+		double oldGradientNorm = gradient.norm();
+		if(m_printLevel>0) spdlog::debug("Gradient norm {} in iteration {}", oldGradientNorm, m_iter);
+		if (oldGradientNorm != oldGradientNorm || isnan(oldGradientNorm))
+		{
+			if(m_printLevel>0) spdlog::error(" Error gradient norm {} in iteration {}", oldGradientNorm, m_iter);
+			m_state = SOLVE_FAILED;
+			break;
+		}
+		if (!m_checkForSPDAtSolution && m_iter>=1)
 		{
 			if (oldGradientNorm < m_gradientThreshold)
 			{
@@ -169,61 +215,29 @@ void UnconstrainedNewton::solve()
 			}
 		}
 		
-
 		m_iter++;
 
-		m_linearSolver->setX(m_x);
-
 		Eigen::VectorXd dx;
-
-		double reg = 0.0;
-		while (true)
+		double reg = computeSearchDirection(m_x, gradient, dx, m_startRegularization);
+		if (m_checkForSPDAtSolution && reg == 0.0 && oldGradientNorm < m_gradientThreshold && m_iter > 1)
 		{
-			m_linearSolver->setShift(reg);
-			if (reg > 1e20)
-			{
-				spdlog::warn("WARNING: huge regularization in forward simulation necessary, hessian very indefinite, check hessian AND GRADIENT implementation");
-				//m_linearSolver->debugHessian();
-				m_state = SOLVE_FAILED;
-				return;
-			}
-			m_linearSolver->factorize();
-			if (m_linearSolver->info() != Eigen::Success)
-			{
-				//std::cout << " inc reg because of cholesky " << std::endl;
-				reg = 4 * reg + 1e-6;
-				continue;
-			}
-			if (checkForSPDAtSolution && reg == 0.0 && oldGradientNorm < m_gradientThreshold && m_iter > 1)
-			{
-				//std::cout << "converged after " << iter << " iterations " << std::endl;
-				m_state = SOLVED;
-				break;
-			}
-
-			m_linearSolver->solve(gradient, dx);
-			dx = -dx;
-			if (dx.dot(gradient) >= 0.0)
-			{
-				//std::cout << " inc reg because of descending condition  " << std::endl;
-				reg = 4 * reg + 1e-7;
-				continue;
-			}
-
+			//std::cout << "converged after " << iter << " iterations " << std::endl;
+			m_state = SOLVED;
 			break;
 		}
-		if (m_state == SOLVED) break;
-		if (checkForSPDAtSolution && reg != 0.0 && oldGradientNorm < m_gradientThreshold)
+		if(m_state == SOLVE_FAILED)
 		{
-			spdlog::warn("Not stopping because of regularization = {} but gradient {} < {}", reg, oldGradientNorm, m_gradientThreshold);
+			break;
+		}
+		if (m_checkForSPDAtSolution && reg != 0.0 && oldGradientNorm < m_gradientThreshold)
+		{
+			if(m_printLevel>0) spdlog::warn("Not stopping because of regularization = {} but gradient {} < {}", reg, oldGradientNorm, m_gradientThreshold);
 		}
 
-		spdlog::debug("Added regularization {}", reg);
+		if(m_printLevel>0) spdlog::debug("Added regularization {}", reg);
 		//std::cout << " reg " << reg << std::endl;
 
-		//SimOpt::ASScalar oldFXAcc = m_objectiveFunctor(m_x);
-		//double reference = oldFXAcc.operator double();
-		//double oldFx = (m_objectiveFunctor(m_x) - reference).operator double();
+		
 		m_searchDirectionFilterFunctor(dx);//filter search direction
 		m_updateOperatorBeforeLineSearchFunctor(m_x, dx);
 
@@ -231,15 +245,177 @@ void UnconstrainedNewton::solve()
 		
 		double largest_alpha = m_largestLineSearchStepFunctor(m_x, dx);//this will compute the largest step size
 		dx *= largest_alpha;
-		spdlog::debug("The largest search alpha {} multiplied into dx", largest_alpha);
+		if(m_printLevel>0) spdlog::debug("The largest search alpha {} multiplied into dx", largest_alpha);
 		double alpha = 1.0;
 
+		bool tryFullStep = false;
+		if (tryFullStep)
+		{
+
+			auto computeGradientNorm = [this](const Eigen::VectorXd &x)
+			{
+				Eigen::VectorXd grad(x.size());
+				m_objectiveGradientFunctor(x, grad);
+				return grad.norm();
+			};
+
+			if(m_printLevel>0) spdlog::info(" trying full step ");
+
+			double triedGradientNorm = computeGradientNorm(m_x + dx);
+			if(m_printLevel>0) spdlog::info(" triedGradientNorm  {}", triedGradientNorm);
+		}
 
 		double f;
-		LineSearch::backtrack(m_x, dx, oldFx, 5, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
+		switch (m_lineSearchMethod)
+		{
+		case lineSearchMethod::ls_backtrack:
+			{
+				LineSearch::backtrack(m_x, dx, oldFx, 25, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
+				break;
+			}
+		case lineSearchMethod::ls_backtrackGreedy:
+			{
+				LineSearch::backtrackGreedy(m_x, dx, oldFx, 50, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
+				break;
+			}
+		case lineSearchMethod::ls_fullStep:
+			{
+				alpha = 1.0;
+				break;
+			}
+		default:
+			{
+				LineSearch::backtrack(m_x, dx, oldFx, 25, 0.5, alpha, f, [this](const Eigen::VectorXd& x) { return m_objectiveFunctor(x); });
+				break;
+			}
+		}
 		
-		spdlog::debug("alpha {} step length {} with objective value {} at iteration {}", alpha, dx.norm() * alpha, f, m_iter);
-		
+
+		if(m_printLevel>0) spdlog::debug("alpha {} step length {} with objective value {} at iteration {}", alpha, dx.norm() * alpha, f, m_iter);
+		m_afterLineSearchFunctor(m_x, dx, alpha, m_iter);
+
+		if (alpha == 0.0)
+		{
+			if(m_printLevel>0) spdlog::warn("ERROR: alpha == 0 in line search in forward simulation, stopping");
+			m_state = SOLVE_FAILED;
+			break;
+			//testing whether we are close to solution, often the change in the objective underflows in this case because dx is too small
+			// but only allowed when no regularization was necessary, so we are pretty sure its a descending direction 
+			if (reg == 0.0 && dx.norm() < m_dxThreshold)
+			{
+				auto computeGradientNorm = [this](const Eigen::VectorXd &x) {
+					Eigen::VectorXd grad(x.size());
+					m_objectiveGradientFunctor(x, grad);
+					return grad.norm();
+				};
+
+				//std::cout << " trying full step " << std::endl;
+
+				double triedGradientNorm = computeGradientNorm(m_x + dx);
+				//std::cout << " triedGradientNorm  " << triedGradientNorm << std::endl;
+				if (triedGradientNorm < m_gradientThreshold)
+				{
+					m_x += dx;
+					m_newXAcceptedCallback(m_x);
+					//TODO add security check on change of objective?
+					//if (dx.norm() < m_dxThreshold && reg == 0.0)
+					//{
+					//	std::cout << "Warning accepted solution because no regularization was used and dx norm < threshold = " << m_dxThreshold << std::endl;
+						//std::cout << "Trying to improve gradient norm using line search on gradient norm: " << std::endl;
+						//
+						//double oldGradNorm = gradient.norm();
+						//double gradNormNew;
+						//LineSearch::backtrackGreedy(m_x, dx, oldGradNorm, 100, 0.8, alpha, gradNormNew, computeGradientNorm);
+						//m_x += alpha * dx;
+						//std::cout << "alpha: " << alpha << std::endl;
+						//std::cout << "f new: " << m_objectiveFunctor(m_x).operator double() << std::endl;
+						//std::cout << "gradient norm : " << oldGradNorm << " -> " << gradNormNew << std::endl;
+					if(m_printLevel>0) spdlog::warn("alpha is 0, but triedGradientNorm is {}", triedGradientNorm);
+					m_state = SOLVE_FAILED;
+					return;
+				}
+				else
+				{
+					//std::cout << " triedGradientNorm  " << triedGradientNorm << std::endl;
+					if (alpha == 0.0)
+					{
+						if(m_printLevel>0) spdlog::warn("ERROR: alpha == 0 in line search in forward simulation, stopping");
+						if(m_printLevel>0) spdlog::warn("gradient norm = {}", gradient.norm());
+						if(m_printLevel>0) spdlog::warn("m_x norm = {}", m_x.norm());
+						if(m_printLevel>0) spdlog::warn("dx norm = {}", dx.norm());
+						if(m_printLevel>0) spdlog::warn(" regularization was : {}", reg);
+						if(m_printLevel>0) spdlog::warn(" f: {}", f);
+						m_state = SOLVE_FAILED;
+
+						break;
+					}
+				}
+			}
+			else
+			{
+				//std::cout << " detected failed line search with regularization " << std::endl;
+				if(m_printLevel>0) spdlog::warn(" detected failed line search with regularization = {}", reg);
+				if(m_printLevel>0) spdlog::warn(" trying smallest eigenvector ");
+				//should we move this into regularization tests or is this last resort? TODO add eigenvalue 0 check on solve?
+				{
+					//Eigen::VectorXd v = -gradient;
+					Eigen::VectorXd v = Eigen::VectorXd::Random(gradient.size());
+					v.normalize();
+					Eigen::VectorXd vn;
+					for (int i = 0; i < 10; i++) //TODO replace by spectra
+					{
+						m_linearSolver->solve(v, vn);
+						v = vn.normalized();
+					}
+
+					if (v.dot(gradient) >= 0.0)
+					{
+						dx = -v * 1e-3;
+					}
+					else
+					{
+						dx = v * 1e-3;
+					}
+
+					m_searchDirectionFilterFunctor(dx);//with this new search direction, we filter it
+					double f;
+					LineSearch::backtrackGreedy(m_x, dx, oldFx, 100, 0.7, alpha, f, [this](const Eigen::VectorXd &x) { return m_objectiveFunctor(x); });
+					if(m_printLevel>0) std::cout << " alpha using smallest eigenvector " << alpha << std::endl;
+					if (alpha == 1.0)
+					{
+						if(m_printLevel>0) std::cout << " trying to increase alpha " << std::endl;
+						double alphaNext = alpha;
+						double nfx = f;
+						double alphaLast = alpha;
+						while (nfx < oldFx)
+						{
+							alphaLast = alphaNext;
+							alphaNext *= 2.0;
+							nfx = m_objectiveFunctor(m_x + alphaNext * dx);
+						}
+						alpha = alphaLast;
+						if(m_printLevel>0) std::cout << " found alpha " << alpha << std::endl;
+					}
+				}
+
+				if (alpha == 0.0)
+				{
+					if(m_printLevel>0) spdlog::warn("ERROR: alpha == 0 in line search in forward simulation, stopping");
+					//LineSearch::backtrackGreedy(m_x, dx, oldFx, 100, 0.8, alpha, f, [this, reference](const Eigen::VectorXd &x) { return (m_objectiveFunctor(x) - reference).operator double(); });
+					if(m_printLevel>0) spdlog::warn("gradient norm = {}", gradient.norm());
+					if(m_printLevel>0) spdlog::warn("m_x norm = {}", m_x.norm());
+					if(m_printLevel>0) spdlog::warn("dx norm = {}", dx.norm());
+					if(m_printLevel>0) spdlog::warn(" regularization was : {}", reg);
+					if(m_printLevel>0) spdlog::warn(" f: {}", f);
+					//std::cout << " accepted residual was : " << (m_hessian.selfadjointView<Eigen::Upper>() * dx + gradient + reg * gradient).norm() << std::endl;
+					m_state = SOLVE_FAILED;
+
+					break;
+				}
+			}
+
+		}
+
 		m_x += alpha * dx;
 		m_newXAcceptedCallback(m_x); // note that this functor is allowed to change x, (i.e. to adapt simulation to configuration, i.e. incremental rotation parametrization)
 	}
@@ -247,44 +423,47 @@ void UnconstrainedNewton::solve()
 	{
 		m_objectiveGradientFunctor(m_x, gradient);
 		if(!m_disableWarnOutput)
-			spdlog::warn(" WARNING: m_maxIter reached, gradient norm = {}", gradient.norm());
+			if(m_printLevel>0) spdlog::warn(" WARNING: m_maxIter reached, gradient norm = {}", gradient.norm());
 		m_state = SOLVE_FAILED;
 	}
 }
 void UnconstrainedNewton::polish()
 {
-	assert(m_state == SOLVED);
+	//assert(m_state == SOLVED);
 	Eigen::VectorXd gradient(m_x.size());
 	m_objectiveGradientFunctor(m_x, gradient);
 	double oldGradientNorm = gradient.norm();
-	std::cout << " start polishing " << oldGradientNorm << std::endl;
+	if(m_printLevel>0) spdlog::debug(" start polishing {}", oldGradientNorm);
 	while (true)
 	{
-		m_linearSolver->setX(m_x);
+		/*m_linearSolver->setX(m_x);
 		m_linearSolver->setShift(0.0);
 		m_linearSolver->factorize();
 		if (m_linearSolver->info() != Eigen::Success)
 		{
-			std::cout << " error could not factorize in polish() " << std::endl;
+			if(m_printLevel>0) spdlog::debug(" error could not factorize in polish() ");
 			int k = 3;
+			return;
 		}
 		Eigen::VectorXd dx;
 		m_linearSolver->solve(gradient, dx);
-		dx = -dx;
+		dx = -dx;*/
+		Eigen::VectorXd dx;
+		double reg = computeSearchDirection(m_x, gradient, dx, 1e-9);
 		Eigen::VectorXd xn = m_x + dx;
 		m_objectiveGradientFunctor(xn, gradient);
 		double newGradientNorm = gradient.norm();
 
-		if (newGradientNorm < oldGradientNorm * 0.5) // we have a scale of 0.5 here for now, because of numerical problems we sometimes do polish steps which are miniscule (changing gradient norm from 2.1e-11 to 2.09e-11 for example)
+		if (newGradientNorm < oldGradientNorm) // we have a scale of 0.5 here for now, because of numerical problems we sometimes do polish steps which are miniscule (changing gradient norm from 2.1e-11 to 2.09e-11 for example)
 		{
-			std::cout << " accepted polishing " << newGradientNorm << std::endl;
+			if(m_printLevel>0) spdlog::debug(" accepted polishing {}", newGradientNorm );
 			oldGradientNorm = newGradientNorm;
 			m_x = xn;
 			m_newXAcceptedCallback(m_x);
 		}
 		else
 		{
-			std::cout << " stopped polishing " << oldGradientNorm << std::endl;
+			if(m_printLevel>0) spdlog::debug(" stopped polishing {}", oldGradientNorm);
 			break;
 		}
 	}

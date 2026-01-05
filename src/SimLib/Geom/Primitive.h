@@ -5,7 +5,8 @@
 #include "Mesh.h"
 #include <Eigen/Core>
 #include <vector>
-
+namespace SimOpt
+{
 template <typename DerivedV, typename DerivedF>
 void cylinderNoCaps(
 	const int axis_devisions,
@@ -300,4 +301,24 @@ void disk(double s0, double s1, double t0, double t1,
 void cuboid(double length, double width, double height, bool isolatedFaces,
 	Eigen::MatrixXd& V,
 	Eigen::MatrixXi& F);
+
+
+void torusEllipticalCrossSection(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	Eigen::MatrixXi& F);
+
+
+void torusEllipticalCrossSectionVerticesJacobian(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	Eigen::MatrixXd& VGradient);
+
+
+//zero
+void torusEllipticalCrossSectionVerticesHessians(double radius, double crossSection_inPlane_radius, double crossSection_outOfPlane_radius,
+	int axis_subdivisions, int height_subdivisions,
+	Eigen::MatrixXd& V,
+	std::vector<Eigen::MatrixXd>& VHessians);
+}
 #endif
